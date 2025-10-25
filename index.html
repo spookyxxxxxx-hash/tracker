@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Task Tracker</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const DailyTaskTracker = () => {
+          const [dailyTasks, setDailyTasks] = useState([]);
+          const [todaysTasks, setTodaysTasks] = useState([]);
+          const [archivedDays, setArchivedDays] = useState({});
+          const [newTaskInput, setNewTaskInput] = useState('');
+          const [selectedDate, setSelectedDate] = useState(null);
+          const [currentDate, setCurrentDate] = useState('');
+          const [currentTime, setCurrentTime] = useState('');
+          const [calendarMonth, setCalendarMonth] = useState(new Date());
+          const [isEditMode, setIsEditMode] = useState(false);
+          const [isAddingTasks, setIsAddingTasks] = useState(false);
+
+          useEffect(() => {
+            const updateDateTime = () => {
+              const now = new Date();
+              setCurrentDate(getTodayString());
+              setCurrentTime(now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+            };
+            updateDateTime();
+            const interval = setInterval(updateDateTime, 1000);
+            return () => clearInterval(interval);
+          }, []);
+
+          useEffect(() => {
+            loadData();
+          }, []);
+
+          useEffect(() => {
+            const checkMidnight = () => {
+              const now = new Date();
+              if (now.getHours() === 0 && now.getMinutes() === 0 && now.getSeconds() === 0) {
+                archiveAndReset();
+              }
+            };
+            const interval = setInterval(checkMidnight, 1000);
+            return () => clearInterval(interval);
+          }, [todaysTasks]);
+
+          const loadData = () => {
+            try {
+              const tasksData = localStorage.getItem('daily-tasks-template');
+              const todaysData = localStorage.getItem('todays-tasks');
+              const archivedData = localStorage.getItem('archived-days');
+              const lastDate = localStorage.getItem('last-date');
+
+              if (tasksData) setDailyTasks(JSON.parse(tasksData));
+              if (archivedData) setArchivedDays(JSON.parse(archivedData));
+              
+              const today = getTodayString();
+              
+              if (lastDate && lastDate !== today) {
+                if (todaysData) {
+                  const yesterdayTasks = JSON.parse(todaysData);
+                  const archived = archivedData ? JSON.parse(archivedData) : {};
+                  archived[lastDate] = yesterdayTasks;
+                  setArchivedDays(archived);
+                  localStorage.setItem('archived-days', JSON.stringify(archived));
+                }
+                
+                const template = tasksData ? JSON.parse(tasksData) : [];
+                const freshTasks = template.map(task => ({ ...task, completed: false }));
+                setTodaysTasks(freshTasks);
+                localStorage.setItem('todays-tasks', JSON.stringify(freshTasks));
+                localStorage.setItem('last-date', today);
+              } else {
+                if (todaysData) {
+                  setTodaysTasks(JSON.parse(todaysData));
+                } else if (tasksData) {
+                  const template = JSON.parse(tasksData);
+                  const freshTasks = template.map(task => ({ ...task, completed: false }));
+                  setTodaysTasks(freshTasks);
+                }
+                localStorage.setItem('last-date', today);
+              }
+            } catch (error) {
+              console.log('Loading initial data:', error);
+              localStorage.setItem('last-date', getTodayString());
+              setIsAddingTasks(true);
+            }
+          };
+
+          const saveData = () => {
+            try {
+              localStorage.setItem('daily-tasks-template', JSON.stringify(dailyTasks));
+              localStorage.setItem('todays-tasks', JSON.stringify(todaysTasks));
+              localStorage.setItem('archived-days', JSON.stringify(archivedDays));
+            } catch (error) {
+              console.error('Error saving data:', error);
+            }
+          };
+
+          useEffect(() => {
+            saveData();
+          }, [dailyTasks, todaysTasks, archivedDays]);
+
+          const getTodayString = () => {
+            const today = new Date();
+            return `${today.getDate().toString().padStart(2, '0')}.${(today.getMonth() + 1).toString().padStart(2, '0')}.${today.getFullYear()}`;
+          };
+
+          const archiveAndReset = () => {
+            const newArchived = { ...archivedDays };
+            newArchived[currentDate] = [...todaysTasks];
+            setArchivedDays(newArchived);
+            
+            const freshTasks = dailyTasks.map(task => ({ ...task, completed: false }));
+            setTodaysTasks(freshTasks);
+            
+            localStorage.setItem('archived-days', JSON.stringify(newArchived));
+            localStorage.setItem('todays-tasks', JSON.stringify(freshTasks));
+            localStorage.setItem('last-date', getTodayString());
+          };
+
+          const addDailyTask = () => {
+            if (newTaskInput.trim()) {
+              const newTask = { id: Date.now(), text: newTaskInput, completed: false };
+              setDailyTasks([...dailyTasks, newTask]);
+              setTodaysTasks([...todaysTasks, { ...newTask }]);
+              setNewTaskInput('');
+            }
+          };
+
+          const completeTaskSetup = () => {
+            setIsAddingTasks(false);
+            setIsEditMode(false);
+          };
+
+          const toggleTask = (id) => {
+            setTodaysTasks(todaysTasks.map(task => 
+              task.id === id ? { ...task, completed: !task.completed } : task
+            ));
+          };
+
+          const deleteTask = (id) => {
+            setDailyTasks(dailyTasks.filter(task => task.id !== id));
+            setTodaysTasks(todaysTasks.filter(task => task.id !== id));
+          };
+
+          const getTaskStats = (tasks) => {
+            const completed = tasks.filter(t => t.completed).length;
+            const total = tasks.length;
+            const missed = total - completed;
+            return { completed, missed, total, percentage: total > 0 ? (completed / total) * 100 : 0 };
+          };
+
+          const getDayColor = (percentage) => {
+            if (percentage === 100) return 'bg-green-500';
+            if (percentage >= 75) return 'bg-lime-400';
+            if (percentage >= 50) return 'bg-yellow-400';
+            if (percentage >= 25) return 'bg-orange-400';
+            if (percentage > 0) return 'bg-red-400';
+            return 'bg-gray-700';
+          };
+
+          const renderCalendar = () => {
+            const year = calendarMonth.getFullYear();
+            const month = calendarMonth.getMonth();
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            const daysInMonth = lastDay.getDate();
+            const startingDayOfWeek = firstDay.getDay();
+            
+            const days = [];
+            
+            for (let i = 0; i < startingDayOfWeek; i++) {
+              days.push(<div key={`empty-${i}`} className="h-20 border border-gray-700 bg-gray-900"></div>);
+            }
+            
+            for (let day = 1; day <= daysInMonth; day++) {
+              const dateStr = `${day.toString().padStart(2, '0')}.${(month + 1).toString().padStart(2, '0')}.${year}`;
+              const dayData = archivedDays[dateStr];
+              const isToday = dateStr === getTodayString();
+              const stats = dayData ? getTaskStats(dayData) : null;
+              
+              days.push(
+                <div
+                  key={day}
+                  onClick={() => (dayData || isToday) && setSelectedDate(dateStr)}
+                  className={`h-20 border border-gray-700 p-1 ${(dayData || isToday) ? 'cursor-pointer hover:bg-gray-700 hover:shadow-md' : 'bg-gray-800'} ${isToday ? 'ring-2 ring-blue-500 bg-gray-700' : ''} transition-all`}
+                >
+                  <div className="flex justify-between items-start mb-1">
+                    <span className={`text-xs font-semibold ${isToday ? 'text-blue-400' : 'text-gray-300'}`}>{day}</span>
+                    {stats && (
+                      <div className={`w-2 h-2 rounded-full ${getDayColor(stats.percentage)}`}></div>
+                    )}
+                  </div>
+                  {isToday && !dayData && (
+                    <div className="text-[10px] text-blue-400 font-medium">Today</div>
+                  )}
+                  {stats && (
+                    <div className="text-[10px] text-gray-400 space-y-0.5">
+                      <div className="flex items-center gap-0.5">
+                        <span className="text-green-400">✓</span> {stats.completed}
+                      </div>
+                      <div className="flex items-center gap-0.5">
+                        <span className="text-red-400">✗</span> {stats.missed}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            
+            return days;
+          };
+
+          const todayStats = getTaskStats(todaysTasks);
+
+          return (
+            <div className="min-h-screen bg-gray-900 p-3">
+              <div className="max-w-7xl mx-auto">
+                <div className="bg-gray-800 rounded-xl shadow-2xl p-3 mb-3 border border-gray-700">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h1 className="text-xl font-bold text-white flex items-center gap-2">
+                         Daily Task Tracker
+                      </h1>
+                      <p className="text-gray-400 text-xs mt-1">Track your daily tasks with automatic midnight reset</p>
+                    </div>
+                    <div className="text-right">
+                      <div className="flex items-center gap-1 text-gray-300 text-sm font-semibold">
+                        🕐 {currentTime}
+                      </div>
+                      <div className="text-lg font-bold text-blue-400">{currentDate}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid lg:grid-cols-3 gap-3">
+                  <div className="lg:col-span-1 bg-gray-800 rounded-xl shadow-2xl p-3 border border-gray-700">
+                    <div className="mb-3">
+                      <div className="flex justify-between items-center mb-2">
+                        <h2 className="text-lg font-bold text-white">Today's Tasks</h2>
+                        {!isAddingTasks && !isEditMode && todaysTasks.length > 0 && (
+                          <button
+                            onClick={() => setIsEditMode(true)}
+                            className="flex items-center gap-1 px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs font-medium text-gray-300"
+                          >
+                            ✏️ Edit
+                          </button>
+                        )}
+                      </div>
+                      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-lg p-3 text-white">
+                        <div className="text-xs opacity-90 mb-1">Progress</div>
+                        <div className="text-2xl font-bold mb-1">{todayStats.completed} / {todayStats.total}</div>
+                        <div className="w-full bg-white bg-opacity-20 rounded-full h-2">
+                          <div 
+                            className="bg-white h-2 rounded-full transition-all duration-500"
+                            style={{ width: `${todayStats.percentage}%` }}
+                          ></div>
+                        </div>
+                        <div className="text-right text-xs mt-1">{todayStats.percentage.toFixed(1)}%</div>
+                      </div>
+                    </div>
+
+                    {(isAddingTasks || isEditMode) && (
+                      <>
+                        <div className="flex gap-2 mb-3">
+                          <input
+                            type="text"
+                            value={newTaskInput}
+                            onChange={(e) => setNewTaskInput(e.target.value)}
+                            onKeyPress={(e) => e.key === 'Enter' && addDailyTask()}
+                            placeholder="Add task..."
+                            className="flex-1 px-3 py-2 text-sm border border-gray-600 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
+                          />
+                          <button 
+                            onClick={addDailyTask} 
+                            className="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700 transition text-sm"
+                          >
+                            ➕
+                          </button>
+                        </div>
+
+                        <div className="space-y-1.5 max-h-60 overflow-y-auto mb-3">
+                          {todaysTasks.map(task => (
+                            <div key={task.id} className="flex items-center gap-2 bg-gray-700 p-2 rounded-lg text-sm">
+                              <span className="flex-1 text-gray-200">{task.text}</span>
+                              <button 
+                                onClick={() => deleteTask(task.id)} 
+                                className="text-red-400 hover:text-red-300 text-xs"
+                              >
+                                ❌
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+
+                        <button
+                          onClick={completeTaskSetup}
+                          className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition text-sm font-semibold"
+                        >
+                          ✔️ Complete Setup
+                        </button>
+                      </>
+                    )}
+
+                    {!isAddingTasks && !isEditMode && (
+                      <div className="space-y-1.5 max-h-80 overflow-y-auto">
+                        {todaysTasks.map(task => (
+                          <div key={task.id} className="flex items-center gap-2 bg-gray-700 p-2 rounded-lg hover:bg-gray-600 transition">
+                            <button onClick={() => toggleTask(task.id)} className="flex-shrink-0 text-lg">
+                              {task.completed ? '✅' : '▢'}
+                            </button>
+                            <span className={`flex-1 text-sm ${task.completed ? 'line-through text-gray-500' : 'text-gray-200'}`}>
+                              {task.text}
+                            </span>
+                          </div>
+                        ))}
+                        {todaysTasks.length === 0 && (
+                          <div className="text-center text-gray-500 py-6">
+                            <div className="text-3xl mb-2">📋</div>
+                            <p className="text-xs mb-3">No tasks yet</p>
+                            <button
+                              onClick={() => setIsAddingTasks(true)}
+                              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-semibold"
+                            >
+                              Add Tasks
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="lg:col-span-2 bg-gray-800 rounded-xl shadow-2xl p-3 border border-gray-700">
+                    <div className="flex justify-between items-center mb-3">
+                      <h2 className="text-lg font-bold text-white flex items-center gap-1">
+                        📅 Calendar
+                      </h2>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1))}
+                          className="px-2 py-1 bg-gray-700 rounded hover:bg-gray-600 transition text-xs text-gray-300"
+                        >
+                          ← Prev
+                        </button>
+                        <div className="px-3 py-1 bg-blue-900 text-blue-300 rounded text-xs font-bold">
+                          {calendarMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                        </div>
+                        <button 
+                          onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1))}
+                          className="px-2 py-1 bg-gray-700 rounded hover:bg-gray-600 transition text-xs text-gray-300"
+                        >
+                          Next →
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mb-2 flex gap-2 text-[10px] flex-wrap text-gray-400">
+                      <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-green-500"></div>100%</div>
+                      <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-lime-400"></div>75-99%</div>
+                      <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-yellow-400"></div>50-74%</div>
+                      <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-orange-400"></div>25-49%</div>
+                      <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-400"></div>1-24%</div>
+                    </div>
+                    
+                    <div className="grid grid-cols-7 gap-1 mb-1">
+                      {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, idx) => (
+                        <div key={idx} className="text-center text-[10px] font-bold text-gray-400 py-1">{day}</div>
+                      ))}
+                    </div>
+                    
+                    <div className="grid grid-cols-7 gap-1">
+                      {renderCalendar()}
+                    </div>
+                  </div>
+                </div>
+
+                {selectedDate && (
+                  <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50" onClick={() => setSelectedDate(null)}>
+                    <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-bold text-white">
+                          {selectedDate === getTodayString() ? "Today's Tasks" : `${selectedDate}`}
+                        </h3>
+                        <button 
+                          onClick={() => setSelectedDate(null)} 
+                          className="text-gray-400 hover:text-gray-300 text-sm"
+                        >
+                          ❌
+                        </button>
+                      </div>
+                      
+                      <div className="space-y-1.5 max-h-72 overflow-y-auto mb-3">
+                        {(selectedDate === getTodayString() ? todaysTasks : archivedDays[selectedDate] || []).map((task, idx) => (
+                          <div key={idx} className="flex items-center gap-2 p-2 bg-gray-700 rounded text-sm">
+                            <span className="text-lg">{task.completed ? '✅' : '⬜'}</span>
+                            <span className={`${task.completed ? 'text-gray-300' : 'text-gray-400'} flex-1`}>
+                              {task.text}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      {(() => {
+                        const tasks = selectedDate === getTodayString() ? todaysTasks : archivedDays[selectedDate] || [];
+                        const stats = getTaskStats(tasks);
+                        return (
+                          <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-lg p-3 text-white">
+                            <div className="grid grid-cols-3 gap-3 text-center text-sm">
+                              <div>
+                                <div className="text-xl font-bold">{stats.completed}</div>
+                                <div className="text-xs opacity-90">Done</div>
+                              </div>
+                              <div>
+                                <div className="text-xl font-bold">{stats.missed}</div>
+                                <div className="text-xs opacity-90">Missed</div>
+                              </div>
+                              <div>
+                                <div className="text-xl font-bold">{stats.percentage.toFixed(0)}%</div>
+                                <div className="text-xs opacity-90">Rate</div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        ReactDOM.render(<DailyTaskTracker />, document.getElementById('root'));
+    </script>
+</body>
+</html>
